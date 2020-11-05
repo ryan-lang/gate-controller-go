@@ -1,44 +1,53 @@
 package serial
 
 import (
-	"bufio"
-	"gousb"
+	//	gser "github.com/goburrow/serial"
+	"fmt"
+	"github.com/tarm/serial"
 )
 
 type serialLayer struct {
-	bytes.Buffer
-	device *gousb.Device
-	ctx    context.Context
+	//port gser.Port
+	serial *serial.Port
 }
 
-func New() (l *serialLayer, err error) {
+func New(addr string) (l *serialLayer, err error) {
 	l = &serialLayer{}
 
-	l.ctx = gousb.NewContext()
+	fmt.Printf("opening serial: %s\n", addr)
 
-	l.dev, err = ctx.OpenDeviceWithVIDPID(0x046d, 0xc526)
+	s, err := serial.OpenPort(&serial.Config{Name: addr, Baud: 38400})
 	if err != nil {
 		return nil, err
 	}
 
-	l.intf, l.done, err = dev.DefaultInterface()
-	if err != nil {
-		return nil, err
-	}
+	l.serial = s
+
+	// port implements io.ReadWriteCloser
+	// port, err := gser.Open(&gser.Config{
+	// 	Address:  addr,
+	// 	BaudRate: 38400,
+	// 	DataBits: 8,
+	// 	Parity:   "N",
+	// })
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	// l = &serialLayer{
+	// 	port: port,
+	// }
+	return l, nil
 }
 
 func (l *serialLayer) Write(b []byte) (int, error) {
-	numBytes, err := ep.Write(data)
-	if numBytes != 5 {
-		log.Fatalf("%s.Write([5]): only %d bytes written, returned error is %v", ep, numBytes, err)
-	}
+	return l.serial.Write(b)
 }
 
 func (l *serialLayer) Read(b []byte) (int, error) {
-
+	return l.serial.Read(b)
 }
 
 func (l *serialLayer) Close() error {
-	l.dev.Close()
-	l.context.Close()
+	return l.serial.Close()
 }

@@ -1,65 +1,30 @@
 package messages
 
 import (
-	"gates/logical"
+	"gate/logical"
 )
 
 type GateFaultMessage struct {
+	responseChan chan interface{}
 }
 
 type GateFaultResponse struct {
-	MessageID             byte // new status
-	LastCommandStatus     byte
-	CurrentOperatorState  byte
-	FaultsPresent         byte
-	BatteryState          byte
-	ACPresent             byte
-	OpenLimit             byte
-	CloseLimit            byte
-	PartialOpenLimit      byte
-	ExitLoop              byte
-	InnerObstructionLoop  byte
-	OuterObstructionLoop  byte
-	ResetShadowLoop       byte
-	Relays                []byte
-	PhotoEyeOpen          byte
-	PhotoEyeClose         byte
-	GateEdgeBoth          byte
-	GateEdgeClose         byte
-	GateEdgeOpen          byte
-	PhotoEyeBoth          byte
-	OpenTooLong           byte
-	Tailgater             byte
-	Loitering             byte
-	TransientVehicleCount int
-	TenantVehicleCount    int
-	SpecialVehicleCount   int
-	UnknownVehicleCount   int
-	CycleCount            int
-	ELDCount              int
-	IOLDCount             int
-	OOLDCount             int
-	HLDCLDCount           int
-	TransientVends        int
-	TenantVends           int
-	SpecialVends          int
-	ManualVends           int
+	NumberOfFaults int16
+	FaultCodes     []int16
 }
 
 func NewGateFaultMessage() *GateFaultMessage {
 	return &GateFaultMessage{
-		responseChan: make(chan bool),
+		responseChan: make(chan interface{}),
 	}
 }
 
 func (m *GateFaultMessage) Packet() *logical.Packet {
-	return &logical.Packet{
-		MessageType: "C",
-	}
+	return logical.NewPacket(0x46, nil, 254)
 }
 
 func (m *GateFaultMessage) FilterResponse(p *logical.Packet) bool {
-	return p.MessageType == "C"
+	return p.MessageType == 0x46
 }
 
 func (m *GateFaultMessage) HandleResponse(p *logical.Packet) error {
@@ -67,6 +32,6 @@ func (m *GateFaultMessage) HandleResponse(p *logical.Packet) error {
 	return nil
 }
 
-func (m *GateFaultMessage) ResponseChan() chan bool {
+func (m *GateFaultMessage) ResponseChan() chan interface{} {
 	return m.responseChan
 }

@@ -1,15 +1,17 @@
 package messages
 
 import (
-	"gates/logical"
+	"fmt"
+	"gate/logical"
+	"strconv"
 )
 
 type GateStatusMessage struct {
+	responseChan chan interface{}
 }
 
 type GateStatusResponse struct {
-	MessageID             byte // new status
-	LastCommandStatus     byte
+	LastCommandStatus     int16
 	CurrentOperatorState  byte
 	FaultsPresent         byte
 	BatteryState          byte
@@ -48,28 +50,35 @@ type GateStatusResponse struct {
 
 func NewGateStatusMessage() *GateStatusMessage {
 	return &GateStatusMessage{
-		responseChan: make(chan *GateStatusResponse),
+		responseChan: make(chan interface{}),
 	}
 }
 
 func (m *GateStatusMessage) Packet() *logical.Packet {
-	return &logical.Packet{
-		MessageType: "S",
-	}
+	return logical.NewPacket(0x53, nil, 254)
 }
 
 func (m *GateStatusMessage) FilterResponse(p *logical.Packet) bool {
-	return p.MessageType == "S"
+	return p.MessageType == 0x53
 }
 
 func (m *GateStatusMessage) HandleResponse(p *logical.Packet) error {
-	m.responseChan <- &GateStatusResponse{
-		MessageID: p.Message[0],
+	if len(p.Message) == 0 {
+		return &ErrInvalidResponse{}
 	}
+
+	r := &GateStatusResponse{}
+
+	{
+		c, _ := strconv.ParseInt(fmt.Sprintf("%x", p.Message[0:1]), 10, 16)
+		r.LastCommandStatus = int16(c)
+	}
+
+	m.responseChan <- r
 	return nil
 }
 
-func (m *GateStatusMessage) ResponseChan() chan bool {
+func (m *GateStatusMessage) ResponseChan() chan interface{} {
 	return m.responseChan
 }
 

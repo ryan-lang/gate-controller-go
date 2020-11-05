@@ -1,10 +1,11 @@
 package messages
 
 import (
-	"gates/logical"
+	"gate/logical"
 )
 
 type VersionMessage struct {
+	responseChan chan interface{}
 }
 
 type VersionResponse struct {
@@ -13,27 +14,25 @@ type VersionResponse struct {
 
 func NewVersionMessage() *VersionMessage {
 	return &VersionMessage{
-		responseChan: make(chan *VersionResponse),
+		responseChan: make(chan interface{}),
 	}
 }
 
 func (m *VersionMessage) Packet() *logical.Packet {
-	return &logical.Packet{
-		MessageType: "V",
-	}
+	return logical.NewPacket(0x56, nil, 0x01)
 }
 
 func (m *VersionMessage) FilterResponse(p *logical.Packet) bool {
-	return p.MessageType == "V"
+	return p.MessageType == 0x56
 }
 
 func (m *VersionMessage) HandleResponse(p *logical.Packet) error {
 	m.responseChan <- &VersionResponse{
-		Version: string(b.Message),
+		Version: string(p.Message),
 	}
 	return nil
 }
 
-func (m *VersionMessage) ResponseChan() chan *VersionResponse {
+func (m *VersionMessage) ResponseChan() chan interface{} {
 	return m.responseChan
 }

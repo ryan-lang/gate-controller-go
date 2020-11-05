@@ -1,5 +1,9 @@
 package control
 
+import (
+	"gate/logical"
+)
+
 type Message interface {
 	Packet() *logical.Packet
 }

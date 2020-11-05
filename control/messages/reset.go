@@ -1,5 +1,9 @@
 package messages
 
+import (
+	"gate/logical"
+)
+
 type ResetMessage struct {
 }
 
@@ -8,7 +12,5 @@ func NewResetMessage() *ResetMessage {
 }
 
 func (m *ResetMessage) Packet() *logical.Packet {
-	return &logical.Packet{
-		MessageType: "R",
-	}
+	return logical.NewPacket(0x52, nil, 254)
 }

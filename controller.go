@@ -1,5 +1,9 @@
 package controller
 
+import (
+	"io"
+)
+
 type (
 	DeviceLogicalLayer interface {
 		Read()

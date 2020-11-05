@@ -9,11 +9,11 @@ import (
 )
 
 type logicalLayer struct {
-	verbose      bool
-	serialReader *bufio.Reader
-	serialWriter io.Writer
-	readChan     chan *Packet
-	writeChan    chan *Packet
+	verbose   bool
+	serial    SerialLayer
+	readChan  chan *Packet
+	writeChan chan *Packet
+	errChan   chan error
 }
 
 type (
@@ -26,39 +26,19 @@ func New(
 	serial SerialLayer,
 ) *logicalLayer {
 	return &logicalLayer{
-		verbose:      true,
-		serialReader: bufio.NewReader(serial),
-		serialWriter: bufio.NewWriter(serial),
+		verbose:   true,
+		serial:    serial,
+		readChan:  make(chan *Packet),
+		writeChan: make(chan *Packet),
+		errChan:   make(chan error),
 	}
 }
 
 // converts our io stream into reader/writer channels
 // and manages reading/writing in two gofuncs
 func (l *logicalLayer) Start() {
-	l.readChan = make(chan *Packet)
-	l.writeChan = make(chan *Packet)
-
-	// loop across Read, pushing onto chan
-	go func() {
-		for {
-			p, err := l.read()
-			if err != nil {
-				// TODO: handle logical error
-			}
-
-			l.readChan <- p
-		}
-	}()
-
-	go func() {
-		select {
-		case p := <-l.writeChan:
-			err := l.write(p)
-			if err != nil {
-				// TODO: handle logical error
-			}
-		}
-	}()
+	go l.reader()
+	go l.writer()
 }
 
 func (l *logicalLayer) ReadChan() chan *Packet {
@@ -69,15 +49,52 @@ func (l *logicalLayer) WriteChan() chan *Packet {
 	return l.writeChan
 }
 
+func (l *logicalLayer) ErrChan() chan error {
+	return l.errChan
+}
+
 func (l *logicalLayer) Close() error {
 	close(l.writeChan)
 	close(l.readChan)
+	close(l.errChan)
+
 	return l.serial.Close()
 }
 
-func (l *logicalLayer) write(p *Packet) error {
+func (l *logicalLayer) reader() {
+	reader := bufio.NewReader(l.serial)
+
+	for {
+		p, err := l.read(reader)
+		if err != nil {
+			l.Debug("err")
+			l.errChan <- err
+		}
+
+		l.readChan <- p
+	}
+}
+
+func (l *logicalLayer) writer() {
+	writer := bufio.NewWriter(l.serial)
+
+	for {
+		select {
+		case p := <-l.writeChan:
+			err := l.write(writer, p)
+			if err != nil {
+				l.Debug("err")
+				l.errChan <- err
+			}
+		}
+	}
+}
+
+func (l *logicalLayer) write(writer *bufio.Writer, p *Packet) error {
 	b := p.Bytes()
-	_, err := l.serial.Write(b)
+	l.Debug("[write] % x", b)
+
+	_, err := writer.Write(b)
 	if err != nil {
 		return err
 	}
@@ -87,16 +104,18 @@ func (l *logicalLayer) write(p *Packet) error {
 
 // read the next full packet in the serial stream; may return packet
 // even if err != nil
-func (l *logicalLayer) read() (packet *Packet, err error) {
+func (l *logicalLayer) read(reader *bufio.Reader) (packet *Packet, err error) {
 
 	packet = &Packet{}
 
 	// read the first byte
 	for {
-		b, err := l.serial.ReadByte()
+		l.Debug("reading next byte, size=%d, buf=%d, %x", reader.Size(), reader.Buffered())
+		b, err := reader.ReadByte()
 		if err != nil {
 			return nil, err
 		}
+		l.Debug("read byte: %x", b)
 
 		// first byte must be 0xFF or we ignore
 		if b == 0xFF {
@@ -111,13 +130,13 @@ func (l *logicalLayer) read() (packet *Packet, err error) {
 
 	// read remaining header (SOM + 2 bytes)
 	{
-		err = l.peekValidateNext(2)
+		err = l.peekValidateNext(reader, 2)
 		if err != nil {
 			return packet, err
 		}
 
 		head := make([]byte, 2)
-		_, err = io.ReadFull(l.serial, head)
+		_, err = io.ReadFull(reader, head)
 		if err != nil {
 			return packet, err
 		}
@@ -137,12 +156,12 @@ func (l *logicalLayer) read() (packet *Packet, err error) {
 
 	// read next byte = messageId
 	{
-		err = l.peekValidateNext(1)
+		err = l.peekValidateNext(reader, 1)
 		if err != nil {
 			return packet, err
 		}
 
-		msgID, err := l.serial.ReadByte()
+		msgID, err := reader.ReadByte()
 		if err != nil {
 			return packet, err
 		}
@@ -159,13 +178,13 @@ func (l *logicalLayer) read() (packet *Packet, err error) {
 
 	// read next size-1 bytes (size includes msgID in prev byte)
 	{
-		err = l.peekValidateNext(int(packet.MessageSize) - 1)
+		err = l.peekValidateNext(reader, int(packet.MessageSize)-1)
 		if err != nil {
 			return packet, err
 		}
 
 		msg := make([]byte, packet.MessageSize-1)
-		_, err = io.ReadFull(l.serial, msg)
+		_, err = io.ReadFull(reader, msg)
 		if err != nil {
 			return packet, err
 		}
@@ -176,12 +195,12 @@ func (l *logicalLayer) read() (packet *Packet, err error) {
 
 	// read & validate checksum
 	{
-		err = l.peekValidateNext(1)
+		err = l.peekValidateNext(reader, 1)
 		if err != nil {
 			return packet, err
 		}
 
-		checksum, err := l.serial.ReadByte()
+		checksum, err := reader.ReadByte()
 		if err != nil {
 			return packet, err
 		}
@@ -201,8 +220,8 @@ func (l *logicalLayer) read() (packet *Packet, err error) {
 
 // read the next n bytes from the stream. rewind and return error
 // if we saw a bad byte
-func (l *logicalLayer) peekValidateNext(n int) error {
-	bs, err := l.serial.Peek(n)
+func (l *logicalLayer) peekValidateNext(reader *bufio.Reader, n int) error {
+	bs, err := reader.Peek(n)
 	if err != nil {
 		return err
 	}
@@ -215,6 +234,5 @@ func (l *logicalLayer) peekValidateNext(n int) error {
 }
 
 func (l *logicalLayer) Debug(msg string, args ...interface{}) {
-	fmt.Printf(msg, args...)
-	fmt.Printf("\n")
+	fmt.Printf(msg+"\n", args...)
 }

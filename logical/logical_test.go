@@ -2,6 +2,7 @@ package logical_test
 
 import (
 	"bytes"
+	"fmt"
 	"gate/logical"
 	"github.com/stretchr/testify/require"
 	"io"
@@ -13,20 +14,47 @@ func TestNormalRead(t *testing.T) {
 	ser := &mockSerial{}
 	l := logical.New(ser)
 
+	ser.readData = bytes.NewBuffer([]byte{
+		0xFF, // start character
+		2,    // address
+		4,    // message size
+		//
+		0x1b, // message type
+		0x01,
+		0x01,
+		0x01,
+		0xDD,
+
+		// new msg
+		0xFF, // start character
+		2,    // address
+		4,    // message size
+		//
+		0x1b, // message type
+		0x01,
+		0x01,
+		0x01,
+		0xDD,
+
+		// new msg
+		0xFF, // start character
+		2,    // address
+		4,    // message size
+		//
+		0x1b, // message type
+		0x01,
+		0x01,
+		0x01,
+		0xDD,
+	})
+
+	l.Start()
+
 	for i := 0; i < 3; i++ {
-		ser.readData = bytes.NewBuffer([]byte{
-			0xFF, // start character
-			2,    // address
-			4,    // message size
-			//
-			0x1b, // message type
-			0x01,
-			0x01,
-			0x01,
-			0xDD,
-		})
-		_, err := l.Read()
-		if err != nil {
+		select {
+		case p := <-l.ReadChan():
+			require.Equal(t, byte(0x1b), p.MessageType)
+		case err := <-l.ErrChan():
 			panic(err)
 		}
 	}
@@ -60,9 +88,13 @@ func TestWrongMessageLength(t *testing.T) {
 		0xDD,
 	})
 
+	l.Start()
+
 	for i := 0; i < 2; i++ {
-		_, err := l.Read()
-		if err != nil {
+		select {
+		case <-l.ReadChan():
+			fmt.Println("read")
+		case err := <-l.ErrChan():
 			if i == 0 {
 				require.Error(t, err)
 			} else {
@@ -94,9 +126,13 @@ func TestBadFrame(t *testing.T) {
 		0xDD,
 	})
 
+	l.Start()
+
 	for i := 0; i < 2; i++ {
-		_, err := l.Read()
-		if err != nil {
+		select {
+		case <-l.ReadChan():
+			fmt.Println("read")
+		case err := <-l.ErrChan():
 			if i == 0 {
 				require.Error(t, err)
 			} else {
@@ -137,6 +173,10 @@ func (s *mockSerial) Write([]byte) (int, error) {
 	return 0, nil
 }
 
+func (s *mockSerial) Close() error {
+	return nil
+}
+
 type mockSerialTimeout struct {
 	readData io.Reader
 }
@@ -152,4 +192,8 @@ func (s *mockSerialTimeout) Read(b []byte) (int, error) {
 
 func (s *mockSerialTimeout) Write([]byte) (int, error) {
 	return 0, nil
+}
+
+func (s *mockSerialTimeout) Close() error {
+	return nil
 }

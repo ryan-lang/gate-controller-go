@@ -1,5 +1,9 @@
 package logical
 
+import (
+	"fmt"
+)
+
 type Packet struct {
 	SOM         byte
 	Address     byte
@@ -9,8 +13,21 @@ type Packet struct {
 	Checksum    byte
 }
 
+func NewPacket(msgType byte, msg []byte, addr byte) *Packet {
+	p := &Packet{
+		SOM:         0xFF,
+		Address:     addr,
+		MessageSize: byte(len(msg) + 1),
+		MessageType: msgType,
+		Message:     msg,
+	}
+
+	p.Checksum = calcChecksum(p.Frame())
+	return p
+}
+
 func (p *Packet) Bytes() []byte {
-	return nil
+	return p.Frame()
 }
 
 func (p *Packet) Header() []byte {
@@ -73,4 +90,20 @@ func (p *Packet) Validate() error {
 	}
 
 	return nil
+}
+
+func calcChecksum(frame []byte) byte {
+	var sum int
+	for _, f := range frame {
+		sum += int(f)
+		fmt.Printf("frame %x sum: %d\n", f, sum)
+	}
+	mod := sum % 256
+	fmt.Printf("mod: %d\n", mod)
+	comp := ^mod
+	fmt.Printf("comp: %d\n", comp)
+	chksum := comp + 1
+	fmt.Printf("checksum: %d\n", chksum)
+
+	return byte(chksum)
 }

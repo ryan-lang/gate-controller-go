@@ -1,10 +1,11 @@
 package messages
 
 import (
-	"gates/logical"
+	"gate/logical"
 )
 
 type GateControlMessage struct {
+	responseChan chan interface{}
 }
 
 type GateControlRequest struct {
@@ -18,20 +19,18 @@ type GateControlRequest struct {
 	BlockExitVehicleDetector bool // latched
 }
 
-func NewGateControlMessage() *GateControlMessage {
+func NewGateControlMessage(req *GateControlRequest) *GateControlMessage {
 	return &GateControlMessage{
-		responseChan: make(chan bool),
+		responseChan: make(chan interface{}),
 	}
 }
 
 func (m *GateControlMessage) Packet() *logical.Packet {
-	return &logical.Packet{
-		MessageType: "C",
-	}
+	return logical.NewPacket(0x43, nil, 254)
 }
 
 func (m *GateControlMessage) FilterResponse(p *logical.Packet) bool {
-	return p.MessageType == "C"
+	return p.MessageType == 0x43
 }
 
 func (m *GateControlMessage) HandleResponse(p *logical.Packet) error {
@@ -39,6 +38,6 @@ func (m *GateControlMessage) HandleResponse(p *logical.Packet) error {
 	return nil
 }
 
-func (m *GateControlMessage) ResponseChan() chan bool {
+func (m *GateControlMessage) ResponseChan() chan interface{} {
 	return m.responseChan
 }
