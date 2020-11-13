@@ -6,6 +6,7 @@ import (
 
 type Message interface {
 	Packet() *logical.Packet
+	ErrChan() chan error
 }
 
 type Transaction interface {

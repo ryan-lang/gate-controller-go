@@ -1,98 +1,292 @@
 package logical
 
 import (
-	"bufio"
+	"context"
 	"fmt"
+	"github.com/fatih/color"
 	"github.com/pkg/errors"
-	//	"github.com/howeyc/crc16"
 	"io"
+	"os"
+	"sync"
+	"time"
 )
 
 type logicalLayer struct {
 	verbose   bool
 	serial    SerialLayer
-	readChan  chan *Packet
-	writeChan chan *Packet
-	errChan   chan error
+	closeChan chan bool
 }
 
 type (
 	SerialLayer interface {
+		Open() error
 		io.ReadWriteCloser
+		io.ByteReader
 	}
 )
 
 func New(
 	serial SerialLayer,
+	verbose bool,
 ) *logicalLayer {
 	return &logicalLayer{
-		verbose:   true,
-		serial:    serial,
-		readChan:  make(chan *Packet),
-		writeChan: make(chan *Packet),
-		errChan:   make(chan error),
+		verbose: verbose,
+		serial:  serial,
 	}
 }
 
-// converts our io stream into reader/writer channels
-// and manages reading/writing in two gofuncs
-func (l *logicalLayer) Start() {
-	go l.reader()
-	go l.writer()
-}
+// opens serial connection, starts reader & writer gofuncs
+// blocks until Stop is called
+func (l *logicalLayer) Start(
+	readChan chan<- *Packet,
+	writeChan <-chan *Packet,
+	errChan chan<- error,
+) error {
+	l.Debug("starting logical")
 
-func (l *logicalLayer) ReadChan() chan *Packet {
-	return l.readChan
-}
+	l.closeChan = make(chan bool)
 
-func (l *logicalLayer) WriteChan() chan *Packet {
-	return l.writeChan
-}
+	var wg sync.WaitGroup
 
-func (l *logicalLayer) ErrChan() chan error {
-	return l.errChan
-}
+	err := l.serial.Open()
+	if err != nil {
+		return errors.Wrap(err, "failed to open serial port")
+	}
 
-func (l *logicalLayer) Close() error {
-	close(l.writeChan)
-	close(l.readChan)
-	close(l.errChan)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	return l.serial.Close()
-}
+	go func() {
+		wg.Add(1)
+		defer wg.Done()
 
-func (l *logicalLayer) reader() {
-	reader := bufio.NewReader(l.serial)
+		l.reader(ctx, readChan, errChan)
+	}()
+	go func() {
+		wg.Add(1)
+		defer wg.Done()
 
-	for {
-		p, err := l.read(reader)
+		l.writer(ctx, writeChan, errChan)
+	}()
+
+	select {
+	case <-l.closeChan:
+		cancel()
+
+		l.Debug("waiting for reader/writer...")
+		wg.Wait()
+
+		l.Debug("waiting for serial close...")
+		err := l.serial.Close()
 		if err != nil {
-			l.Debug("err")
-			l.errChan <- err
+			return err
 		}
 
-		l.readChan <- p
+		l.Debug("logical layer closed")
+		return nil
 	}
 }
 
-func (l *logicalLayer) writer() {
-	writer := bufio.NewWriter(l.serial)
+func (l *logicalLayer) Close() {
+	close(l.closeChan)
+}
 
+func (l *logicalLayer) reader(
+	ctx context.Context,
+	readChan chan<- *Packet,
+	errChan chan<- error,
+) {
+	serialByte := make(chan byte)
+	serialErr := make(chan error)
+
+	// start the first-byte reader, which pushes
+	// next byte onto the channel, or pushes error
+	go func() {
+		for {
+			b, err := l.serial.ReadByte()
+			if err != nil {
+				if err == io.EOF {
+					continue
+				}
+
+				switch err := err.(type) {
+				case *os.PathError:
+					if err.Err == os.ErrClosed {
+						// ignore "file already closed errors"
+						// this error means shutting down
+						return
+					}
+				default:
+				}
+
+				serialErr <- err
+				continue
+			}
+
+			serialByte <- b
+		}
+	}()
+
+	// main loop looks for SOM bytes, or error or cancel
 	for {
 		select {
-		case p := <-l.writeChan:
-			err := l.write(writer, p)
+
+		// exit if main loop is cancelled
+		case <-ctx.Done():
+			return
+
+		// propagate main loop serial errors
+		case err := <-serialErr:
+			errChan <- err
+			continue
+
+		// read the next byte
+		case b := <-serialByte:
+
+			// ingore any bytes that are not SOM
+			if b != 0xFF {
+				continue
+			}
+
+			// inner loop looks for non-SOM bytes, or error, or cancel
+			var packet *Packet
+		packetRead:
+			for {
+				if packet == nil {
+					l.debugRecv("new packet")
+					packet = &Packet{
+						SOM: 0xFF,
+					}
+				}
+
+				// start a stricter timeout for reading the next byte
+				bctx, bcancel := context.WithTimeout(ctx, time.Millisecond*500)
+				defer bcancel()
+
+				select {
+
+				// main loop cancelled, exit
+				case <-ctx.Done():
+					return
+
+				// next-byte reader cancelled, return to main loop
+				case <-bctx.Done():
+					errChan <- errors.Wrap(bctx.Err(), "timed out waiting for next byte")
+					break packetRead
+
+				// if serial read error, return to main loop
+				case err := <-serialErr:
+					errChan <- err
+					break packetRead
+
+				// next byte for packet
+				case b := <-serialByte:
+					// SOM byte mid-packet, reset the packet
+					if b == 0xFF {
+						errChan <- &ErrUnexpectedByte{}
+						packet = nil
+						continue
+					}
+
+					if packet.Address == 0 {
+						packet.Address = b
+
+					} else if packet.MessageSize == 0 {
+						packet.MessageSize = b
+
+					} else if packet.MessageType == 0 {
+						packet.MessageType = b
+
+					} else if len(packet.Message) < (int(packet.MessageSize) - 1) {
+						packet.Message = append(packet.Message, b)
+
+					} else if packet.Checksum == 0 {
+
+						packet.Checksum = b
+
+						err := packet.ValidateChecksum()
+						if err != nil {
+							l.debugRecv("frame=% x checksum=bad", packet.Frame())
+
+							errChan <- err
+							break packetRead
+						}
+
+						l.debugRecv("frame=% x checksum=ok", packet.Frame())
+					}
+
+					// validate full packet on each iteration
+					// give up on packet if validation fails
+					err := packet.Validate()
+					if err != nil {
+						errChan <- err
+						break packetRead
+					}
+
+					// packet is complete & valid
+					if packet.Checksum > 0 {
+						l.debugRecv("readchan blocked")
+						readChan <- packet
+						l.debugRecv("readchan recv")
+						break packetRead
+					}
+				}
+			}
+
+			l.debugRecv("finished packet")
+		}
+	}
+}
+
+func (l *logicalLayer) writer(
+	ctx context.Context,
+	writeChan <-chan *Packet,
+	errChan chan<- error,
+) {
+	for {
+		select {
+		case <-ctx.Done():
+			l.debugSend("writer cancelled")
+			return
+		case p, ok := <-writeChan:
+			if !ok {
+				return
+			}
+			err := l.write(l.serial, p)
 			if err != nil {
-				l.Debug("err")
-				l.errChan <- err
+				l.debugSend("err")
+				errChan <- err
 			}
 		}
 	}
 }
 
-func (l *logicalLayer) write(writer *bufio.Writer, p *Packet) error {
+func (l *logicalLayer) handleSerialError(ctx context.Context, errChan chan error, err error) {
+
+	l.debugRecv("serial err recv")
+	select {
+	case errChan <- err:
+	case <-ctx.Done():
+	}
+}
+
+// blocking for loop that receives on context Done, errChan, and byteChan, sends on errChan and readChan
+func (l *logicalLayer) readPacket(
+	ctx context.Context,
+	b byte,
+	packet *Packet,
+	readChan chan<- *Packet,
+	errChan chan<- error,
+) *Packet {
+	ctx, cancel := context.WithTimeout(ctx, time.Millisecond*500)
+	defer cancel()
+
+	return packet
+}
+
+func (l *logicalLayer) write(writer io.Writer, p *Packet) error {
 	b := p.Bytes()
-	l.Debug("[write] % x", b)
+	l.debugSend("frame=% x", b)
 
 	_, err := writer.Write(b)
 	if err != nil {
@@ -102,137 +296,16 @@ func (l *logicalLayer) write(writer *bufio.Writer, p *Packet) error {
 	return nil
 }
 
-// read the next full packet in the serial stream; may return packet
-// even if err != nil
-func (l *logicalLayer) read(reader *bufio.Reader) (packet *Packet, err error) {
-
-	packet = &Packet{}
-
-	// read the first byte
-	for {
-		l.Debug("reading next byte, size=%d, buf=%d, %x", reader.Size(), reader.Buffered())
-		b, err := reader.ReadByte()
-		if err != nil {
-			return nil, err
-		}
-		l.Debug("read byte: %x", b)
-
-		// first byte must be 0xFF or we ignore
-		if b == 0xFF {
-			packet.SOM = b
-			l.Debug("0:SOM=%x", packet.SOM)
-
-			break
-		} else {
-			l.Debug("0?:not SOM=%x", b)
-		}
-	}
-
-	// read remaining header (SOM + 2 bytes)
-	{
-		err = l.peekValidateNext(reader, 2)
-		if err != nil {
-			return packet, err
-		}
-
-		head := make([]byte, 2)
-		_, err = io.ReadFull(reader, head)
-		if err != nil {
-			return packet, err
-		}
-
-		packet.Address = head[0]
-		packet.MessageSize = head[1]
-
-		l.Debug("1:addr=%x", packet.Address)
-		l.Debug("2:msgSize=%d", packet.MessageSize)
-
-		// ++ VALIDATE
-		err = packet.Validate()
-		if err != nil {
-			return packet, err
-		}
-	}
-
-	// read next byte = messageId
-	{
-		err = l.peekValidateNext(reader, 1)
-		if err != nil {
-			return packet, err
-		}
-
-		msgID, err := reader.ReadByte()
-		if err != nil {
-			return packet, err
-		}
-
-		packet.MessageType = msgID
-		l.Debug("3:msgType=%x", packet.MessageType)
-
-		// ++ VALIDATE
-		err = packet.Validate()
-		if err != nil {
-			return packet, err
-		}
-	}
-
-	// read next size-1 bytes (size includes msgID in prev byte)
-	{
-		err = l.peekValidateNext(reader, int(packet.MessageSize)-1)
-		if err != nil {
-			return packet, err
-		}
-
-		msg := make([]byte, packet.MessageSize-1)
-		_, err = io.ReadFull(reader, msg)
-		if err != nil {
-			return packet, err
-		}
-
-		packet.Message = msg
-		l.Debug("4-%d:msg=% x", len(packet.Message)+3, packet.Message)
-	}
-
-	// read & validate checksum
-	{
-		err = l.peekValidateNext(reader, 1)
-		if err != nil {
-			return packet, err
-		}
-
-		checksum, err := reader.ReadByte()
-		if err != nil {
-			return packet, err
-		}
-		packet.Checksum = checksum
-		l.Debug("%d:checksum=%x", len(packet.Message)+4, checksum)
-
-		err = packet.ValidateChecksum()
-		if err != nil {
-			l.Debug("frame=% x checksum=bad\n", packet.Frame())
-			return packet, err
-		}
-	}
-
-	l.Debug("frame=% x checksum=ok\n", packet.Frame())
-	return packet, nil
+func (l *logicalLayer) debugSend(msg string, args ...interface{}) {
+	l.Debug("[send] "+msg, args...)
 }
 
-// read the next n bytes from the stream. rewind and return error
-// if we saw a bad byte
-func (l *logicalLayer) peekValidateNext(reader *bufio.Reader, n int) error {
-	bs, err := reader.Peek(n)
-	if err != nil {
-		return err
-	}
-	for _, b := range bs {
-		if b == 0xFF {
-			return errors.Wrap(&ErrUnexpectedByte{b}, fmt.Sprintf("peeked invalid byte in next %d bytes", n))
-		}
-	}
-	return nil
+func (l *logicalLayer) debugRecv(msg string, args ...interface{}) {
+	l.Debug("[recv] "+msg, args...)
 }
 
 func (l *logicalLayer) Debug(msg string, args ...interface{}) {
-	fmt.Printf(msg+"\n", args...)
+	if l.verbose {
+		color.Yellow(fmt.Sprintf("[L] "+msg+"\n", args...))
+	}
 }

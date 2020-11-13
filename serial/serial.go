@@ -1,53 +1,83 @@
 package serial
 
 import (
-	//	gser "github.com/goburrow/serial"
+	"bufio"
+	"context"
 	"fmt"
+	"github.com/fatih/color"
 	"github.com/tarm/serial"
+	"io"
+	"time"
 )
 
 type serialLayer struct {
-	//port gser.Port
-	serial *serial.Port
+	addr    string
+	verbose bool
+	port    io.ReadWriteCloser
+	reader  io.ByteReader
 }
 
-func New(addr string) (l *serialLayer, err error) {
-	l = &serialLayer{}
-
-	fmt.Printf("opening serial: %s\n", addr)
-
-	s, err := serial.OpenPort(&serial.Config{Name: addr, Baud: 38400})
-	if err != nil {
-		return nil, err
+func New(addr string, verbose bool) (l *serialLayer, err error) {
+	l = &serialLayer{
+		addr:    addr,
+		verbose: verbose,
 	}
 
-	l.serial = s
-
-	// port implements io.ReadWriteCloser
-	// port, err := gser.Open(&gser.Config{
-	// 	Address:  addr,
-	// 	BaudRate: 38400,
-	// 	DataBits: 8,
-	// 	Parity:   "N",
-	// })
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	// l = &serialLayer{
-	// 	port: port,
-	// }
 	return l, nil
 }
 
+func (l *serialLayer) Open() error {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
+	defer cancel()
+
+	errChan := make(chan error)
+
+	go func() {
+		l.debug("opening serial: %s", l.addr)
+
+		s, err := serial.OpenPort(&serial.Config{
+			Name: l.addr,
+			Baud: 38400,
+		})
+		if err != nil {
+			errChan <- err
+			return
+		}
+
+		l.port = s
+		l.reader = bufio.NewReader(s)
+
+		l.debug("serial ready")
+		errChan <- nil
+	}()
+
+	select {
+	case err := <-errChan:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func (l *serialLayer) Write(b []byte) (int, error) {
-	return l.serial.Write(b)
+	return l.port.Write(b)
 }
 
 func (l *serialLayer) Read(b []byte) (int, error) {
-	return l.serial.Read(b)
+	return l.port.Read(b)
 }
 
 func (l *serialLayer) Close() error {
-	return l.serial.Close()
+	defer l.debug("serial closed")
+	return l.port.Close()
+}
+
+func (l *serialLayer) ReadByte() (byte, error) {
+	return l.reader.ReadByte()
+}
+
+func (l *serialLayer) debug(msg string, args ...interface{}) {
+	if l.verbose {
+		color.Blue(fmt.Sprintf("[S] "+msg+"\n", args...))
+	}
 }

@@ -1,9 +1,5 @@
 package logical
 
-import (
-	"fmt"
-)
-
 type Packet struct {
 	SOM         byte
 	Address     byte
@@ -96,14 +92,10 @@ func calcChecksum(frame []byte) byte {
 	var sum int
 	for _, f := range frame {
 		sum += int(f)
-		fmt.Printf("frame %x sum: %d\n", f, sum)
 	}
 	mod := sum % 256
-	fmt.Printf("mod: %d\n", mod)
 	comp := ^mod
-	fmt.Printf("comp: %d\n", comp)
 	chksum := comp + 1
-	fmt.Printf("checksum: %d\n", chksum)
 
 	return byte(chksum)
 }

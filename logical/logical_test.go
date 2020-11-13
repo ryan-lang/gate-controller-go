@@ -1,6 +1,7 @@
 package logical_test
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"gate/logical"
@@ -12,9 +13,9 @@ import (
 
 func TestNormalRead(t *testing.T) {
 	ser := &mockSerial{}
-	l := logical.New(ser)
+	l := logical.New(ser, true)
 
-	ser.readData = bytes.NewBuffer([]byte{
+	ser.readData = bufio.NewReader(bytes.NewBuffer([]byte{
 		0xFF, // start character
 		2,    // address
 		4,    // message size
@@ -46,15 +47,20 @@ func TestNormalRead(t *testing.T) {
 		0x01,
 		0x01,
 		0xDD,
-	})
+	}))
 
-	l.Start()
+	packetRead := make(chan *logical.Packet)
+	packetWrite := make(chan *logical.Packet)
+	packetErr := make(chan error)
+
+	go l.Start(packetRead, packetWrite, packetErr)
 
 	for i := 0; i < 3; i++ {
 		select {
-		case p := <-l.ReadChan():
+		case p := <-packetRead:
 			require.Equal(t, byte(0x1b), p.MessageType)
-		case err := <-l.ErrChan():
+		case err := <-packetErr:
+			fmt.Println("error")
 			panic(err)
 		}
 	}
@@ -64,9 +70,9 @@ func TestNormalRead(t *testing.T) {
 
 func TestWrongMessageLength(t *testing.T) {
 	ser := &mockSerial{}
-	l := logical.New(ser)
+	l := logical.New(ser, true)
 
-	ser.readData = bytes.NewBuffer([]byte{
+	ser.readData = bufio.NewReader(bytes.NewBuffer([]byte{
 		0xFF, // start character
 		2,    // address
 		4,    // message size
@@ -86,15 +92,20 @@ func TestWrongMessageLength(t *testing.T) {
 		0x01,
 		0x01,
 		0xDD,
-	})
+	}))
 
-	l.Start()
+	packetRead := make(chan *logical.Packet)
+	packetWrite := make(chan *logical.Packet)
+	packetErr := make(chan error)
+
+	go l.Start(packetRead, packetWrite, packetErr)
 
 	for i := 0; i < 2; i++ {
 		select {
-		case <-l.ReadChan():
+		case <-packetRead:
 			fmt.Println("read")
-		case err := <-l.ErrChan():
+		case err := <-packetErr:
+			fmt.Println("error")
 			if i == 0 {
 				require.Error(t, err)
 			} else {
@@ -108,9 +119,9 @@ func TestWrongMessageLength(t *testing.T) {
 
 func TestBadFrame(t *testing.T) {
 	ser := &mockSerial{}
-	l := logical.New(ser)
+	l := logical.New(ser, true)
 
-	ser.readData = bytes.NewBuffer([]byte{
+	ser.readData = bufio.NewReader(bytes.NewBuffer([]byte{
 		// garbaled frame
 		0xFF,
 		2,
@@ -124,15 +135,20 @@ func TestBadFrame(t *testing.T) {
 		0x01,
 		0x01,
 		0xDD,
-	})
+	}))
 
-	l.Start()
+	packetRead := make(chan *logical.Packet)
+	packetWrite := make(chan *logical.Packet)
+	packetErr := make(chan error)
+
+	go l.Start(packetRead, packetWrite, packetErr)
 
 	for i := 0; i < 2; i++ {
 		select {
-		case <-l.ReadChan():
+		case <-packetRead:
 			fmt.Println("read")
-		case err := <-l.ErrChan():
+		case err := <-packetErr:
+			fmt.Println("error")
 			if i == 0 {
 				require.Error(t, err)
 			} else {
@@ -162,7 +178,7 @@ func TestBadFrame(t *testing.T) {
 // }
 
 type mockSerial struct {
-	readData io.Reader
+	readData *bufio.Reader
 }
 
 func (s *mockSerial) Read(b []byte) (int, error) {
@@ -173,8 +189,16 @@ func (s *mockSerial) Write([]byte) (int, error) {
 	return 0, nil
 }
 
+func (s *mockSerial) Open() error {
+	return nil
+}
+
 func (s *mockSerial) Close() error {
 	return nil
+}
+
+func (l *mockSerial) ReadByte() (byte, error) {
+	return l.readData.ReadByte()
 }
 
 type mockSerialTimeout struct {

@@ -6,20 +6,24 @@ import (
 
 type VersionMessage struct {
 	responseChan chan interface{}
+	errChan      chan error
+	address      int
 }
 
 type VersionResponse struct {
 	Version string
 }
 
-func NewVersionMessage() *VersionMessage {
+func NewVersionMessage(addr int) *VersionMessage {
 	return &VersionMessage{
-		responseChan: make(chan interface{}),
+		responseChan: make(chan interface{}, 1),
+		errChan:      make(chan error, 3),
+		address:      addr,
 	}
 }
 
 func (m *VersionMessage) Packet() *logical.Packet {
-	return logical.NewPacket(0x56, nil, 0x01)
+	return logical.NewPacket(0x56, nil, byte(m.address))
 }
 
 func (m *VersionMessage) FilterResponse(p *logical.Packet) bool {
@@ -35,4 +39,8 @@ func (m *VersionMessage) HandleResponse(p *logical.Packet) error {
 
 func (m *VersionMessage) ResponseChan() chan interface{} {
 	return m.responseChan
+}
+
+func (m *VersionMessage) ErrChan() chan error {
+	return m.errChan
 }
