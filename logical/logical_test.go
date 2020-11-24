@@ -7,6 +7,10 @@ import (
 	"gate/logical"
 	"github.com/stretchr/testify/require"
 	"io"
+	"log"
+	"os"
+	"runtime"
+	"runtime/pprof"
 	"testing"
 	"time"
 )
@@ -122,7 +126,7 @@ func TestBadFrame(t *testing.T) {
 	l := logical.New(ser, true)
 
 	ser.readData = bufio.NewReader(bytes.NewBuffer([]byte{
-		// garbaled frame
+		// garbled frame
 		0xFF,
 		2,
 
@@ -157,6 +161,47 @@ func TestBadFrame(t *testing.T) {
 		}
 	}
 	return
+}
+
+func TestMemoryLeak(t *testing.T) {
+
+	ser := &mockSerial{}
+	l := logical.New(ser, true)
+
+	packetRead := make(chan *logical.Packet)
+	packetWrite := make(chan *logical.Packet)
+	packetErr := make(chan error)
+
+	go l.Start(packetRead, packetWrite, packetErr)
+
+	for i := 0; i < 10000; i++ {
+		ser.readData = bufio.NewReader(bytes.NewBuffer([]byte{
+			// start of good frame
+			0xFF, // start character
+			2,    // address
+			4,    // message size
+			0x1b, // message type
+			0x01,
+			0x01,
+			0x01,
+			0xDD,
+		}))
+
+		select {
+		case <-packetRead:
+			PrintMemUsage()
+		}
+	}
+
+	f, err := os.Create("mem.prof")
+	if err != nil {
+		log.Fatal("could not create memory profile: ", err)
+	}
+	defer f.Close() // error handling omitted for example
+	runtime.GC()    // get up-to-date statistics
+	if err := pprof.WriteHeapProfile(f); err != nil {
+		log.Fatal("could not write memory profile: ", err)
+	}
 }
 
 // todo: need to understand how device behaves here
@@ -220,4 +265,18 @@ func (s *mockSerialTimeout) Write([]byte) (int, error) {
 
 func (s *mockSerialTimeout) Close() error {
 	return nil
+}
+
+func PrintMemUsage() {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	// For info on each, see: https://golang.org/pkg/runtime/#MemStats
+	fmt.Printf("Alloc = %v MiB", bToMb(m.Alloc))
+	fmt.Printf("\tTotalAlloc = %v MiB", bToMb(m.TotalAlloc))
+	fmt.Printf("\tSys = %v MiB", bToMb(m.Sys))
+	fmt.Printf("\tNumGC = %v\n", m.NumGC)
+}
+
+func bToMb(b uint64) uint64 {
+	return b / 1024 / 1024
 }

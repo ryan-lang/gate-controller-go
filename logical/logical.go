@@ -161,7 +161,6 @@ func (l *logicalLayer) reader(
 
 				// start a stricter timeout for reading the next byte
 				bctx, bcancel := context.WithTimeout(ctx, time.Millisecond*500)
-				defer bcancel()
 
 				select {
 
@@ -231,6 +230,9 @@ func (l *logicalLayer) reader(
 						break packetRead
 					}
 				}
+
+				// cancel context
+				bcancel()
 			}
 
 			l.debugRecv("finished packet")

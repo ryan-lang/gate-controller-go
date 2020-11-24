@@ -175,7 +175,9 @@ func (c *controlLayer) handlePacketRead(p *logical.Packet) {
 
 	// return ErrUnexpectedFrame if we made a request, and this is the wrong reply
 	if !c.txPend.FilterResponse(p) {
-		c.txPend.ErrChan() <- &ErrUnexpectedFrame{}
+		c.warn("unexpected frame...")
+		//c.txPend.ErrChan() <- &ErrUnexpectedFrame{}
+		return
 	}
 
 	// completes the transaction, sends on tx ResponseChan

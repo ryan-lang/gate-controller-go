@@ -2,6 +2,7 @@ package messages
 
 import (
 	"encoding/json"
+	"fmt"
 	"gate/logical"
 	"strconv"
 )
@@ -30,11 +31,15 @@ func (m *GateFaultMessage) Packet() *logical.Packet {
 }
 
 func (m *GateFaultMessage) FilterResponse(p *logical.Packet) bool {
-	return p.MessageType == 0x46
+	match := p.MessageType == 0x46
+	if !match {
+		fmt.Printf("FilterResponse failed: got=%s, expected=%s\n", string(p.MessageType), string(0x46))
+	}
+	return match
 }
 
 func (m *GateFaultMessage) HandleResponse(p *logical.Packet) error {
-	if len(p.Message) == 0 {
+	if len(p.Message) < 18 {
 		return &ErrInvalidResponse{}
 	}
 

@@ -103,7 +103,8 @@ func (s *serviceLayer) Start() error {
 						continue
 					}
 
-					if prevStatus == nil || prevStatus.Diff(status) {
+					// ignores changes in relays
+					if prevStatus == nil || prevStatus.Diff(status, true) {
 						s.publishStatus(status)
 					}
 

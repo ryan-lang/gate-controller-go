@@ -2,6 +2,7 @@ package messages
 
 import (
 	"encoding/json"
+	"fmt"
 	"gate/logical"
 	"strconv"
 )
@@ -65,11 +66,15 @@ func (m *GateStatusMessage) Packet() *logical.Packet {
 }
 
 func (m *GateStatusMessage) FilterResponse(p *logical.Packet) bool {
-	return p.MessageType == 0x4e
+	match := p.MessageType == 0x4e
+	if !match {
+		fmt.Printf("FilterResponse failed: got=%s, expected=%s\n", string(p.MessageType), string(0x4e))
+	}
+	return match
 }
 
-func (m *GateStatusResponse) Diff(s *GateStatusResponse) bool {
-	return m.LastCommandStatus != s.LastCommandStatus ||
+func (m *GateStatusResponse) Diff(s *GateStatusResponse, ignoreRelays bool) bool {
+	diff := m.LastCommandStatus != s.LastCommandStatus ||
 		m.CurrentOperatorState != s.CurrentOperatorState ||
 		m.FaultsPresent != s.FaultsPresent ||
 		m.BatteryState != s.BatteryState ||
@@ -81,9 +86,6 @@ func (m *GateStatusResponse) Diff(s *GateStatusResponse) bool {
 		m.InnerObstructionLoop != s.InnerObstructionLoop ||
 		m.OuterObstructionLoop != s.OuterObstructionLoop ||
 		m.ResetShadowLoop != s.ResetShadowLoop ||
-		m.Relay1 != s.Relay1 ||
-		m.Relay2 != s.Relay2 ||
-		m.Relay3 != s.Relay3 ||
 		m.PhotoEyeOpen != s.PhotoEyeOpen ||
 		m.PhotoEyeClose != s.PhotoEyeClose ||
 		m.GateEdgeOpen != s.GateEdgeOpen ||
@@ -106,10 +108,19 @@ func (m *GateStatusResponse) Diff(s *GateStatusResponse) bool {
 		m.TenantVends != s.TenantVends ||
 		m.SpecialVends != s.SpecialVends ||
 		m.ManualVends != s.ManualVends
+
+	if ignoreRelays {
+		return diff
+	} else {
+		return diff ||
+			m.Relay1 != s.Relay1 ||
+			m.Relay2 != s.Relay2 ||
+			m.Relay3 != s.Relay3
+	}
 }
 
 func (m *GateStatusMessage) HandleResponse(p *logical.Packet) error {
-	if len(p.Message) == 0 {
+	if len(p.Message) < 93 {
 		return &ErrInvalidResponse{}
 	}
 
