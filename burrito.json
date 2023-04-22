@@ -1,0 +1,11 @@
+{
+  "abstract": "gate control over serial",
+  "author": "Ryan Lang \u003crlang@me.com\u003e",
+  "name": "df-gate-controller-go",
+  "plugin": "df-go",
+  "release_name": "df-gate-controller-go-0.0.1",
+  "scripts": {},
+  "skip_dist": false,
+  "skip_release_upload": false,
+  "version": "0.0.1"
+}

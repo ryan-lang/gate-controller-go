@@ -1,0 +1,95 @@
+syntax = "proto3";
+
+package auth;
+import "google/protobuf/timestamp.proto";
+option go_package = "g/rpc/auth";
+
+// use this type to peek at a more specific token request's grant type
+message GenericTokenRequest {
+    string GrantType = 1;
+}
+
+message ClientTokenRequest {
+    string GrantType = 1;
+    string ClientID = 2;
+    string ClientSecret = 3;
+}
+
+message PasswordTokenRequest {
+    string GrantType = 1;
+    string ClientID = 2;
+    string ClientSecret = 3;
+    string Username = 4;
+    string Password = 5;
+}
+
+message TokenResponse {
+    string AccessToken = 1;
+    string TokenType = 2;
+    int64 ExpiresIn = 3;
+    string RefreshToken = 4;
+}
+
+message VerifyTokenRequest {
+    string Token = 1;
+}
+
+message IntrospectTokenRequest {
+    string Token = 1;
+}
+
+message AnonBookingTokenRequest {
+    string ClientID = 1;
+    string ClientSecret = 2;
+    int32 BookingID = 3;
+    google.protobuf.Timestamp Expiry = 4;
+}
+
+message IntrospectTokenResponse {
+    bool Active = 1;
+    AuthPolicy Policy = 2;
+    int32 UserID = 3;
+    int32 GroupID = 4;
+    UserMeta User = 5;
+}
+
+message VerifyTokenResponse {
+    bool Active = 1;
+}
+
+message UserMeta{
+    string LongName = 1;
+    string ShortName = 2;
+    string Email = 3;
+}
+
+message AuthPolicy {
+    int32 ID = 1;
+    PolicyDocument Document = 2;
+}
+
+message PolicyDocument {
+    repeated PolicyStatement Statements = 1;
+}
+
+message PolicyStatement {
+    repeated string Actions = 1;
+    string Effect = 2;
+    string Resource = 3;
+    string Principal = 4;
+}
+
+message ResourceRequest {
+    int32 RefID = 1;
+    string RefTable = 2;
+}
+
+message ResourcePolicy {
+    int32 ID = 1;
+    PolicyDocument Document = 2;
+}
+
+message VerifyPasswordResponse {
+    int32 UserID = 1;
+    bool Ok = 2;
+}

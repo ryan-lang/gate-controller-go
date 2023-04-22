@@ -13,20 +13,24 @@ import (
 )
 
 type serviceLayer struct {
+	GateID string
+
 	verbose    bool
 	controller ControlLayer
 	addr       int
 	done       chan bool
 
-	statuses chan *msgs.GateStatusResponse
-	faults   chan *msgs.GateFaultResponse
-	errors   chan error
+	statuses   chan *msgs.GateStatusResponse
+	faults     chan *msgs.GateFaultResponse
+	errors     chan error
+	lastStatus *msgs.GateStatusResponse
 
 	lock          sync.RWMutex
 	listenerCount int
 	listeners     map[int]*listener
 
-	metrics *ServiceMetrics
+	metrics    *ServiceMetrics
+	gateEvents gateEventCreator
 }
 
 type ServiceMetrics struct {
@@ -47,6 +51,10 @@ type ControlLayer interface {
 	GateFault(ctx context.Context, addr int) (*msgs.GateFaultResponse, error)
 }
 
+type gateEventCreator interface {
+	CreateGateEvent(ctx context.Context, gateID, event string) (int32, error)
+}
+
 type listener struct {
 	statuses chan *msgs.GateStatusResponse
 	faults   chan *msgs.GateFaultResponse
@@ -54,18 +62,22 @@ type listener struct {
 }
 
 func New(
+	gateID string,
 	control ControlLayer,
 	verbose bool,
 	addr int,
 	metrics *ServiceMetrics,
+	gateEvents gateEventCreator,
 ) *serviceLayer {
 	return &serviceLayer{
+		GateID:     gateID,
 		verbose:    verbose,
 		controller: control,
 		addr:       addr,
 		done:       make(chan bool),
 		listeners:  make(map[int]*listener),
 		metrics:    metrics,
+		gateEvents: gateEvents,
 	}
 }
 
@@ -81,9 +93,17 @@ func (s *serviceLayer) Start() error {
 	})
 
 	g.Add(func() error {
-		var prevStatus *msgs.GateStatusResponse
 		var prevFault *msgs.GateFaultResponse
 
+		// report version on startup
+		ver, err := s.controller.Version(ctx, s.addr)
+		if err != nil {
+			s.warn("failed to fetch controller version: %s", err.Error())
+		} else {
+			s.debug("controller version: %s", ver.Version)
+		}
+
+		// main status/fault loop
 		for {
 			select {
 			case <-ctx.Done():
@@ -104,11 +124,11 @@ func (s *serviceLayer) Start() error {
 					}
 
 					// ignores changes in relays
-					if prevStatus == nil || prevStatus.Diff(status, true) {
+					if s.lastStatus == nil || s.lastStatus.Diff(status, true) {
 						s.publishStatus(status)
 					}
 
-					prevStatus = status
+					s.lastStatus = status
 				}
 
 				{
@@ -171,9 +191,16 @@ func (s *serviceLayer) Unlisten(ctx context.Context, lid int) {
 	}
 }
 
-func (s *serviceLayer) PushButtonOpen(ctx context.Context) error {
+func (s *serviceLayer) PushButtonOpen(ctx context.Context) (int32, error) {
 	defer s.metrics.GateUpMeter.Mark(1)
-	return s.Exec(ctx, ops.NewPushButtonOpenOp(s.addr))
+
+	gateEventID, err := s.gateEvents.CreateGateEvent(ctx, s.GateID, "open")
+	if err != nil {
+		s.warn("failed to create gate event: id=%d", gateEventID)
+	}
+
+	err = s.Exec(ctx, ops.NewPushButtonOpenOp(s.addr))
+	return gateEventID, err
 }
 
 func (s *serviceLayer) PushButtonClose(ctx context.Context) error {
@@ -225,6 +252,14 @@ func (s *serviceLayer) Exec(ctx context.Context, op ops.Operation) error {
 			}
 		}
 	}
+}
+
+func (s *serviceLayer) LastStatus() *msgs.GateStatusResponse {
+	return s.lastStatus
+}
+
+func (s *serviceLayer) Metrics() *ServiceMetrics {
+	return s.metrics
 }
 
 func (s *serviceLayer) publishStatus(status *msgs.GateStatusResponse) {

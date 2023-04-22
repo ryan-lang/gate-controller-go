@@ -18,7 +18,7 @@ type Service interface {
 		fCh chan *msgs.GateFaultResponse,
 		erCh chan error,
 	) int
-	PushButtonOpen(ctx context.Context) error
+	PushButtonOpen(ctx context.Context) (int32, error)
 	PushButtonClose(ctx context.Context) error
 	Exec(ctx context.Context, op ops.Operation) error
 }
@@ -35,8 +35,9 @@ type (
 	}
 	PushButtonRequest  struct{}
 	PushButtonResponse struct {
-		Ok    bool
-		Error error
+		Ok          bool
+		Error       error
+		GateEventID int32
 	}
 	ExecRequest struct {
 		Operation ops.Operation
@@ -68,8 +69,9 @@ func (t *GateService) Listen(req *ListenRequest, res *ListenResponse) error {
 
 func (t *GateService) PushButtonOpen(req *PushButtonRequest, res *PushButtonResponse) error {
 	ctx := context.Background()
-	err := t.service.PushButtonOpen(ctx)
+	gateEventID, err := t.service.PushButtonOpen(ctx)
 
+	res.GateEventID = gateEventID
 	res.Error = err
 	if err != nil {
 		res.Ok = false

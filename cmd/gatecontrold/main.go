@@ -4,7 +4,10 @@ import (
 	"flag"
 	"fmt"
 	"gate/control"
+	"gate/gateEvents"
+	"gate/gateEvents/snapshots"
 	"gate/logical"
+	"gate/postgres"
 	"gate/serial"
 	"gate/service"
 	"gate/transport/rpc"
@@ -23,6 +26,9 @@ func main() {
 	devAddr := flag.String("s", "", "/dev/xx rs485 path")
 	listen := flag.String("p", ":", "rpc listen address")
 	addr := flag.Int("g", 1, "gate id (address)")
+	gateID := flag.String("n", "", "gate id (name)")
+	dbStr := flag.String("db", "postgres://gatemanager:gatemanager@parkdb2.df:5432/atz", "database conn")
+	snapshotSvcStr := flag.String("snap", "https://snapshot.private.dougfoxparking.com/rpc/", "snapshot service")
 	verbose := flag.Bool("v", false, "verbose")
 	veryVerbose := flag.Bool("vv", false, "verbose+")
 	veryVeryVerbose := flag.Bool("vvv", false, "verbose++")
@@ -45,6 +51,25 @@ func main() {
 
 	var g run.Group
 
+	// new postgres conn
+	db, err := postgres.ConnectToDatabase(*dbStr, 5)
+	if err != nil {
+		panic(fmt.Sprintf("unable to connect to database:%s", err))
+	}
+	store := postgres.NewStore(true, db)
+
+	// new snapshot svc
+	snapshotService, err := snapshots.NewJSONRPCClient(*snapshotSvcStr)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	// gate event creator
+	evCreator, err := gateEvents.NewCreator(store, snapshotService)
+	if err != nil {
+		panic(err)
+	}
+
 	// serial device init
 	serialLayer, err := serial.New(*devAddr, *veryVeryVerbose)
 	if err != nil {
@@ -56,7 +81,7 @@ func main() {
 
 	// control layer (decode/encode message)
 	controlLayer := control.New(logicalLayer, *veryVerbose || *veryVeryVerbose)
-	svc := service.New(controlLayer, *verbose || *veryVerbose || *veryVeryVerbose, *addr, serviceMetrics)
+	svc := service.New(*gateID, controlLayer, *verbose || *veryVerbose || *veryVeryVerbose, *addr, serviceMetrics, evCreator)
 
 	go func() {
 		<-time.After(time.Second * 5)

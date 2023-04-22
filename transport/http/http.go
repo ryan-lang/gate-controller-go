@@ -4,28 +4,41 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	msgs "gate/control/messages"
+	"gate/service"
 	"github.com/gorilla/mux"
 	"net/http"
 )
 
 type Service interface {
-	PushButtonOpen(ctx context.Context) error
+	PushButtonOpen(ctx context.Context) (int32, error)
 	PushButtonClose(ctx context.Context) error
+	LastStatus() *msgs.GateStatusResponse
+	Metrics() *service.ServiceMetrics
 }
 
 type (
 	PushButtonRequest  struct{}
 	PushButtonResponse struct {
-		Ok    bool
-		Error string
+		GateEventID int32
+		Ok          bool
+		Error       string
+	}
+
+	StateResponse struct {
+		Status  *msgs.GateStatusResponse
+		Metrics *service.ServiceMetrics
 	}
 )
 
 func New(svc Service) (http.Handler, error) {
 	r := mux.NewRouter()
 
+	r.HandleFunc("/state", MakeStateHandler(svc)).Methods("GET")
 	r.HandleFunc("/push-button-open", MakePushButtonOpenHandler(svc)).Methods("POST")
 	r.HandleFunc("/push-button-close", MakePushButtonCloseHandler(svc)).Methods("POST")
+	r.HandleFunc("/control/push-button-open", MakePushButtonOpenHandler(svc)).Methods("POST")
+	r.HandleFunc("/control/push-button-close", MakePushButtonCloseHandler(svc)).Methods("POST")
 
 	return r, nil
 }
@@ -35,17 +48,19 @@ func MakePushButtonOpenHandler(svc Service) func(http.ResponseWriter, *http.Requ
 		fmt.Println("request Push Button Open")
 
 		ctx := context.Background()
-		err := svc.PushButtonOpen(ctx)
+		gateEventID, err := svc.PushButtonOpen(ctx)
 
 		var res *PushButtonResponse
 		if err != nil {
 			res = &PushButtonResponse{
-				Ok:    false,
-				Error: err.Error(),
+				Ok:          false,
+				Error:       err.Error(),
+				GateEventID: gateEventID,
 			}
 		} else {
 			res = &PushButtonResponse{
-				Ok: true,
+				Ok:          true,
+				GateEventID: gateEventID,
 			}
 		}
 
@@ -72,6 +87,17 @@ func MakePushButtonCloseHandler(svc Service) func(http.ResponseWriter, *http.Req
 			}
 		}
 
+		encodeJsonResponse(w, res)
+	}
+}
+
+func MakeStateHandler(svc Service) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Println("request state")
+		res := &StateResponse{
+			Status:  svc.LastStatus(),
+			Metrics: svc.Metrics(),
+		}
 		encodeJsonResponse(w, res)
 	}
 }
