@@ -14,13 +14,15 @@ import (
 	"gate/service"
 	httpt "gate/transport/http"
 	httpp "gate/transport/http-publisher"
-	"github.com/oklog/run"
-	"github.com/rcrowley/go-metrics"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/oklog/run"
+	"github.com/rcrowley/go-metrics"
+
 	// "gate/control/ops"
 	"time"
 )
@@ -41,7 +43,7 @@ func main() {
 	flag.Var(&publishAddrs, "publish", "http publish address")
 	addr := flag.Int("g", 1, "gate id (address)")
 	gateID := flag.String("n", "", "gate id (name)")
-	dbStr := flag.String("db", "postgres://gatemanager:gatemanager@parkdb2.df:5432/atz", "database conn")
+	dbStr := flag.String("db", "postgres://gatemanager:gatemanager@parkdb2.df:5432/atz&pool_max_conns=5", "database conn")
 	snapshotSvcStr := flag.String("snap", "https://snapshot.private.dougfoxparking.com/rpc/", "snapshot service")
 	verbose := flag.Bool("v", false, "verbose")
 	veryVerbose := flag.Bool("vv", false, "verbose+")
@@ -75,7 +77,7 @@ func main() {
 	var g run.Group
 
 	// new postgres conn
-	db, err := postgres.ConnectToDatabase(*dbStr, 5)
+	db, err := postgres.ConnectToDatabase(*dbStr)
 	if err != nil {
 		panic(fmt.Sprintf("unable to connect to database:%s", err))
 	}

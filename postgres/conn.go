@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+
 	"github.com/jackc/pgx/v4/pgxpool"
 )
 
@@ -10,7 +11,7 @@ type Conn struct {
 	Pgxconn *pgxpool.Conn
 }
 
-func ConnectToDatabase(dsn string, maxConns int32) (*pgxpool.Pool, error) {
+func ConnectToDatabase(dsn string) (*pgxpool.Pool, error) {
 	fmt.Printf("establishing db connection %s\n", dsn)
 
 	pgxconfig, err := pgxpool.ParseConfig(dsn)

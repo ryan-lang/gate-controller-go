@@ -6,8 +6,9 @@ import (
 	proto "gate/g/rpc/snapshot"
 	"gate/gateEvents/snapshots"
 	"gate/postgres"
-	"github.com/golang/protobuf/ptypes"
 	"time"
+
+	"github.com/golang/protobuf/ptypes"
 )
 
 type gateEventGrp struct {
@@ -20,7 +21,7 @@ func main() {
 	ctx := context.Background()
 
 	// new postgres conn
-	db, err := postgres.ConnectToDatabase("postgres://gatemanager:gatemanager@parkdb2.df:5432/atz", 5)
+	db, err := postgres.ConnectToDatabase("postgres://gatemanager:gatemanager@parkdb2.df:5432/atz")
 	if err != nil {
 		panic(fmt.Sprintf("unable to connect to database:%s", err))
 	}
@@ -73,7 +74,7 @@ func main() {
 		}
 
 		// insert the gateevent-snapshot map
-		err = store.WriteGateEventSnapshotMap(ctx, v.ID, res.ID)
+		err = store.WriteGateEventSnapshotMap(ctx, v.ID, res.ID, true)
 		if err != nil {
 			fmt.Printf("failed to write snapshot map: %s\n", err.Error())
 			continue
