@@ -5,11 +5,12 @@ import (
 	"fmt"
 	msgs "gate/control/messages"
 	ops "gate/service/ops"
+	"sync"
+	"time"
+
 	"github.com/fatih/color"
 	"github.com/oklog/run"
 	"github.com/rcrowley/go-metrics"
-	"sync"
-	"time"
 )
 
 type serviceLayer struct {
@@ -196,7 +197,7 @@ func (s *serviceLayer) PushButtonOpen(ctx context.Context) (int32, error) {
 
 	gateEventID, err := s.gateEvents.CreateGateEvent(ctx, s.GateID, "open")
 	if err != nil {
-		s.warn("failed to create gate event: id=%d", gateEventID)
+		s.warn("failed to create gate event: id=%d", gateEventID, "err", err.Error())
 	}
 
 	err = s.Exec(ctx, ops.NewPushButtonOpenOp(s.addr))
