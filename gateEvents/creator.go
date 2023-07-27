@@ -59,10 +59,12 @@ func (c *creator) CreateGateEvent(ctx context.Context, gateID string, event stri
 
 	// attempt to fetch profile mapping if they are empty;
 	// this state can occur if the db is offline upon startup
-	if c.profileMappings == nil {
+	if c.profileMappings == nil || len(c.profileMappings) == 0 {
 		c.profileMappings, err = c.store.GetGateCameraProfileMappings(context.Background())
 		if err != nil {
 			fmt.Printf("failed to get gate camera profile mappings; gate event snapshots will be disabled: %s\n", err.Error())
+		} else {
+			fmt.Println("loaded profile mappings")
 		}
 	}
 
