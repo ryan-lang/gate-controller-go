@@ -92,7 +92,7 @@ func (c *creator) CreateGateEvent(ctx context.Context, gateID string, event stri
 				return
 			}
 
-			c.debug("saved snapshot for gate event id=%d", id)
+			c.debug("saved snapshot (%s) for gate event id=%d", profID, id)
 		}(gateEventID, mapping.ProfileName, mapping.IsPrimary)
 	}
 
