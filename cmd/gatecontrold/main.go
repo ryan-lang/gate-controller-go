@@ -54,11 +54,11 @@ func main() {
 	var g run.Group
 
 	// new postgres conn
-	db, err := postgres.ConnectToDatabase(*dbStr)
+	conn, err := postgres.NewConnection(*dbStr)
 	if err != nil {
 		panic(fmt.Sprintf("unable to connect to database:%s", err))
 	}
-	store := postgres.NewStore(true, db)
+	store := postgres.NewStore(true, conn)
 
 	// new snapshot svc
 	snapshotService, err := snapshots.NewJSONRPCClient(*snapshotSvcStr)

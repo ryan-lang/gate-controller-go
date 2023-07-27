@@ -43,7 +43,7 @@ func main() {
 	flag.Var(&publishAddrs, "publish", "http publish address")
 	addr := flag.Int("g", 1, "gate id (address)")
 	gateID := flag.String("n", "", "gate id (name)")
-	dbStr := flag.String("db", "postgres://gatemanager:gatemanager@parkdb2.df:5432/atz&pool_max_conns=5", "database conn")
+	dbStr := flag.String("db", "postgres://gatemanager:gatemanager@parkdb2.df:5432/atz?pool_max_conns=5", "database conn")
 	snapshotSvcStr := flag.String("snap", "https://snapshot.private.dougfoxparking.com/rpc/", "snapshot service")
 	verbose := flag.Bool("v", false, "verbose")
 	veryVerbose := flag.Bool("vv", false, "verbose+")
@@ -77,11 +77,11 @@ func main() {
 	var g run.Group
 
 	// new postgres conn
-	db, err := postgres.ConnectToDatabase(*dbStr)
+	conn, err := postgres.NewConnection(*dbStr)
 	if err != nil {
 		panic(fmt.Sprintf("unable to connect to database:%s", err))
 	}
-	store := postgres.NewStore(true, db)
+	store := postgres.NewStore(true, conn)
 
 	// new snapshot svc
 	snapshotService, err := snapshots.NewJSONRPCClient(*snapshotSvcStr)

@@ -38,7 +38,7 @@ func NewCreator(store gateEventStore, snapshots gateEventSnapshots) (*creator, e
 
 	mappings, err := store.GetGateCameraProfileMappings(context.Background())
 	if err != nil {
-		return nil, err
+		fmt.Printf("failed to get gate camera profile mappings; gate event snapshots will be disabled: %s\n", err.Error())
 	}
 
 	return &creator{
@@ -55,6 +55,15 @@ func (c *creator) CreateGateEvent(ctx context.Context, gateID string, event stri
 	gateEventID, err := c.store.WriteGateEvent(ctx, gateID, event)
 	if err != nil {
 		return 0, err
+	}
+
+	// attempt to fetch profile mapping if they are empty;
+	// this state can occur if the db is offline upon startup
+	if c.profileMappings == nil {
+		c.profileMappings, err = c.store.GetGateCameraProfileMappings(context.Background())
+		if err != nil {
+			fmt.Printf("failed to get gate camera profile mappings; gate event snapshots will be disabled: %s\n", err.Error())
+		}
 	}
 
 	// background-process the snapshot

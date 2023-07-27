@@ -6,8 +6,9 @@ import (
 	"fmt"
 	msgs "gate/control/messages"
 	"gate/service"
-	"github.com/gorilla/mux"
 	"net/http"
+
+	"github.com/gorilla/mux"
 )
 
 type Service interface {
@@ -52,6 +53,7 @@ func MakePushButtonOpenHandler(svc Service) func(http.ResponseWriter, *http.Requ
 
 		var res *PushButtonResponse
 		if err != nil {
+			fmt.Printf("push button open failed: %s\n", err.Error())
 			res = &PushButtonResponse{
 				Ok:          false,
 				Error:       err.Error(),
@@ -77,6 +79,7 @@ func MakePushButtonCloseHandler(svc Service) func(http.ResponseWriter, *http.Req
 
 		var res *PushButtonResponse
 		if err != nil {
+			fmt.Printf("push button close failed: %s\n", err.Error())
 			res = &PushButtonResponse{
 				Ok:    false,
 				Error: err.Error(),

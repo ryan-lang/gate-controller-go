@@ -8,7 +8,7 @@ import (
 
 func (s *store) WriteGateEventSnapshotMap(ctx context.Context, gateEventID, snapshotID int32, isPrimary bool) error {
 
-	_, err := s.pool.Exec(ctx,
+	_, err := s.db.Exec(ctx,
 		`INSERT INTO gate_event_snapshot (
 				gate_event_id,
 				snapshot_id,

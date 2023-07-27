@@ -10,7 +10,7 @@ import (
 func (s *store) GetGateCameraProfileMappings(ctx context.Context) ([]*GateCameraProfileMap, error) {
 	var vv []*GateCameraProfileMap
 
-	rows, err := s.pool.Query(ctx,
+	rows, err := s.db.Query(ctx,
 		`SELECT 
 			m.gate_id,
 			p.name,

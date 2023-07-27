@@ -197,7 +197,7 @@ func (s *serviceLayer) PushButtonOpen(ctx context.Context) (int32, error) {
 
 	gateEventID, err := s.gateEvents.CreateGateEvent(ctx, s.GateID, "open")
 	if err != nil {
-		s.warn("failed to create gate event: id=%d", gateEventID, "err", err.Error())
+		s.error("failed to create gate event: id=%d, err=%s", gateEventID, err.Error())
 	}
 
 	err = s.Exec(ctx, ops.NewPushButtonOpenOp(s.addr))
@@ -356,4 +356,8 @@ func (s *serviceLayer) warn(msg string, args ...interface{}) {
 	if s.verbose {
 		color.Magenta(fmt.Sprintf("[X] "+msg, args...))
 	}
+}
+
+func (s *serviceLayer) error(msg string, args ...interface{}) {
+	color.Red(fmt.Sprintf("[X] "+msg, args...))
 }
